@@ -8,7 +8,16 @@
 
 export type Rect = { x: number; y: number; w: number; h: number }
 
-export type NodeKind = 'element' | 'text'
+export type NodeKind = 'element' | 'text' | 'pseudo'
+
+/**
+ * Which tree(s) a node belongs to.
+ *
+ *   'both'   in the DOM tree and generates a box
+ *   'dom'    in the DOM tree, generates NO box (display:none, <head>, collapsed whitespace)
+ *   'render' generates a box but is NOT in the DOM (::before / ::after)
+ */
+export type Membership = 'both' | 'dom' | 'render'
 
 export type CapturedNode = {
   /** index into Capture.nodes — also the identity used by the renderer */
@@ -18,7 +27,7 @@ export type CapturedNode = {
   /** nesting depth from the document element; drives the z axis */
   depth: number
   kind: NodeKind
-  /** lowercase tag name, or '#text' */
+  /** lowercase tag name, '#text', or '::before' / '::after' */
   tag: string
   id?: string
   classes?: string[]
@@ -28,8 +37,15 @@ export type CapturedNode = {
   whitespaceOnly?: boolean
   /** viewport-relative box, already offset by scroll into document coordinates */
   rect: Rect
-  /** true when the node occupies no space at all (most whitespace text nodes) */
+  /** true when the node occupies no space at all */
   degenerate: boolean
+
+  membership: Membership
+  /** why a DOM node generates no box — 'display:none', 'in <head>', 'collapsed' … */
+  reason?: string
+  /** true when rect is inferred rather than measured (pseudo-elements have no rect API) */
+  approximate?: boolean
+
   display?: string
   position?: string
   zIndex?: string
@@ -51,5 +67,13 @@ export type Capture = {
     whitespaceTexts: number
     degenerate: number
     maxDepth: number
+    /** in the DOM tree (everything except synthesized pseudo-elements) */
+    inDom: number
+    /** generates a box */
+    inRender: number
+    /** in the DOM but dropped from the render tree */
+    domOnly: number
+    /** in the render tree but never in the DOM */
+    renderOnly: number
   }
 }

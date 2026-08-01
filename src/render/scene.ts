@@ -107,8 +107,8 @@ export function createViewer(mount: HTMLElement): Viewer {
         const isHit = next != null && b.node.index === next.index
         const lineMat = b.edges.material as { opacity: number }
         const meshMat = b.mesh.material as { opacity: number }
-        lineMat.opacity = isHit ? 1 : b.node.degenerate ? 0.95 : 0.55
-        meshMat.opacity = isHit ? 0.38 : b.node.degenerate ? 0.55 : 0.09
+        lineMat.opacity = isHit ? 1 : b.baseEdge
+        meshMat.opacity = isHit ? 0.4 : b.baseFill
       }
     }
     hovered = next

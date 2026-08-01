@@ -1,5 +1,6 @@
 import {
   BufferGeometry,
+  Color,
   DoubleSide,
   EdgesGeometry,
   Float32BufferAttribute,
@@ -11,21 +12,43 @@ import {
   PlaneGeometry,
 } from 'three'
 import type { Capture, CapturedNode } from '../capture/types'
-import { TEXT_COLOR, WHITESPACE_COLOR, depthColor } from './palette'
+import {
+  BOTH_COLOR,
+  DOM_ONLY_COLOR,
+  RENDER_ONLY_COLOR,
+  TEXT_COLOR,
+  WHITESPACE_COLOR,
+  depthColor,
+} from './palette'
+import { buildReference } from './reference'
+
+/**
+ * Which tree is on screen.
+ *
+ *   'dom'    the DOM tree — everything the parser produced, boxes or not
+ *   'render' the render tree — only nodes that generate boxes, including ::before/::after
+ *   'diff'   both at once, coloured by which tree each node belongs to
+ */
+export type TreeMode = 'dom' | 'render' | 'diff'
 
 export type BuildOptions = {
+  mode: TreeMode
   /** world units between depth levels */
   gap: number
   showText: boolean
   showWhitespace: boolean
   /** draw a line from each node to its parent */
   showLinks: boolean
+  showPlanes: boolean
+  showRuler: boolean
 }
 
 export type BuiltNode = {
   node: CapturedNode
   mesh: Mesh
   edges: LineSegments
+  baseFill: number
+  baseEdge: number
 }
 
 export type BuiltScene = {
@@ -35,8 +58,29 @@ export type BuiltScene = {
   pickable: Mesh[]
 }
 
-/** Degenerate nodes have no box, so they get a small marker instead of nothing. */
+/** Nodes with no box get a small marker instead of nothing. */
 const MARKER = 10
+
+function includeNode(n: CapturedNode, opts: BuildOptions): boolean {
+  if (opts.mode === 'dom' && n.membership === 'render') return false
+  if (opts.mode === 'render' && n.membership === 'dom') return false
+  if (n.kind === 'text') {
+    if (!opts.showText) return false
+    if (n.whitespaceOnly && !opts.showWhitespace) return false
+  }
+  return true
+}
+
+function colorFor(n: CapturedNode, capture: Capture, mode: TreeMode): Color {
+  if (mode === 'diff') {
+    if (n.membership === 'dom') return DOM_ONLY_COLOR
+    if (n.membership === 'render') return RENDER_ONLY_COLOR
+    return BOTH_COLOR
+  }
+  if (n.kind === 'pseudo') return RENDER_ONLY_COLOR
+  if (n.kind === 'text') return n.whitespaceOnly ? WHITESPACE_COLOR : TEXT_COLOR
+  return depthColor(n.depth, capture.stats.maxDepth)
+}
 
 /**
  * Turns a Capture into geometry.
@@ -55,20 +99,17 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
   const built: BuiltNode[] = []
   const pickable: Mesh[] = []
 
-  const { viewport, stats } = capture
+  const { viewport } = capture
   const positions = new Map<number, [number, number, number]>()
 
   for (const node of capture.nodes) {
-    if (node.kind === 'text') {
-      if (!opts.showText) continue
-      if (node.whitespaceOnly && !opts.showWhitespace) continue
-    }
+    if (!includeNode(node, opts)) continue
 
     const degenerate = node.degenerate
     const w = degenerate ? MARKER : node.rect.w
     const h = degenerate ? MARKER : node.rect.h
 
-    // A degenerate node has no position of its own, so it borrows its parent's.
+    // A degenerate node has no position of its own, so it borrows its parent's corner.
     let cx = node.rect.x + node.rect.w / 2
     let cy = node.rect.y + node.rect.h / 2
     if (degenerate) {
@@ -83,12 +124,11 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
     const y = -cy + viewport.h / 2
     const z = node.depth * opts.gap
 
-    const color =
-      node.kind === 'text'
-        ? node.whitespaceOnly
-          ? WHITESPACE_COLOR
-          : TEXT_COLOR
-        : depthColor(node.depth, stats.maxDepth)
+    const color = colorFor(node, capture, opts.mode)
+    const emphasise = opts.mode === 'diff' && node.membership !== 'both'
+
+    const baseFill = degenerate ? 0.55 : emphasise ? 0.22 : 0.09
+    const baseEdge = degenerate ? 0.95 : emphasise ? 0.9 : 0.5
 
     const geometry = new PlaneGeometry(Math.max(w, 1), Math.max(h, 1))
 
@@ -97,7 +137,7 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
       new MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: degenerate ? 0.55 : 0.09,
+        opacity: baseFill,
         side: DoubleSide,
         depthWrite: false,
       }),
@@ -107,17 +147,13 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
 
     const edges = new LineSegments(
       new EdgesGeometry(geometry),
-      new LineBasicMaterial({
-        color,
-        transparent: true,
-        opacity: degenerate ? 0.95 : 0.55,
-      }),
+      new LineBasicMaterial({ color, transparent: true, opacity: baseEdge }),
     )
     edges.position.copy(mesh.position)
 
     group.add(mesh)
     group.add(edges)
-    built.push({ node, mesh, edges })
+    built.push({ node, mesh, edges, baseFill, baseEdge })
     pickable.push(mesh)
     positions.set(node.index, [x, y, z])
   }
@@ -142,6 +178,17 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
     }
   }
 
+  // Depth is only legible against something fixed.
+  const visibleDepth = built.reduce((m, b) => Math.max(m, b.node.depth), 0)
+  group.add(
+    buildReference(capture, {
+      gap: opts.gap,
+      maxDepth: visibleDepth,
+      showPlanes: opts.showPlanes,
+      showRuler: opts.showRuler,
+    }),
+  )
+
   return { group, built, pickable }
 }
 
@@ -149,9 +196,10 @@ export function disposeScene(scene: BuiltScene) {
   scene.group.traverse((obj) => {
     const any = obj as unknown as {
       geometry?: { dispose(): void }
-      material?: { dispose(): void }
+      material?: { map?: { dispose(): void }; dispose(): void }
     }
     any.geometry?.dispose()
+    any.material?.map?.dispose()
     any.material?.dispose()
   })
 }

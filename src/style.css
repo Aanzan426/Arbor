@@ -103,3 +103,15 @@ button.primary { background: #10303c; border-color: #1d5c72; }
   transition: opacity 0.12s;
 }
 .readout.on { opacity: 1; }
+
+.seg button { padding: 6px 4px; }
+.seg button.on { background: #10303c; border-color: #1d5c72; color: #fff; }
+
+.note {
+  margin: 0;
+  color: var(--dim);
+  font-size: 11px;
+  min-height: 30px;
+}
+.note b { color: #9d7bff; font-weight: 600; }
+.note i { color: #ff5470; font-style: normal; font-weight: 600; }
