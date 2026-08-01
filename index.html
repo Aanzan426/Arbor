@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arbor</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="panel">
+        <header>
+          <h1>Arbor</h1>
+          <p class="sub">The tree the browser actually built.</p>
+        </header>
+
+        <label class="lbl" for="src">HTML</label>
+        <textarea id="src" spellcheck="false"></textarea>
+
+        <div class="row">
+          <button id="explode" class="primary">Explode</button>
+          <button id="sample">Sample</button>
+          <button id="reset">Recentre</button>
+        </div>
+
+        <div class="opts">
+          <label><input type="checkbox" id="opt-text" checked /> text nodes</label>
+          <label><input type="checkbox" id="opt-ws" checked /> whitespace nodes</label>
+          <label><input type="checkbox" id="opt-links" checked /> parent links</label>
+          <label class="slider">
+            depth gap <span id="gap-val">90</span>
+            <input type="range" id="opt-gap" min="10" max="300" step="10" value="90" />
+          </label>
+        </div>
+
+        <div id="stats" class="stats"></div>
+        <div id="legend" class="legend">
+          <span><i class="sw grad"></i> element, by depth</span>
+          <span><i class="sw" style="background:#7dffb0"></i> text</span>
+          <span><i class="sw" style="background:#ffb347"></i> whitespace only</span>
+        </div>
+        <div id="err" class="err"></div>
+      </aside>
+
+      <main id="stage">
+        <div id="readout" class="readout"></div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
