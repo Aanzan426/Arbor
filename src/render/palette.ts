@@ -32,5 +32,14 @@ export const DOM_ONLY_COLOR = new Color(0xff5470)
 /** diff mode — a box that exists in no DOM (::before / ::after). */
 export const RENDER_ONLY_COLOR = new Color(0x9d7bff)
 
+/** stacking mode — an element that FORMS a stacking context. */
+export const CONTEXT_COLOR = new Color(0xffd166)
+
+/** stacking mode — an element that merely paints inside one. */
+export const IN_CONTEXT_COLOR = new Color(0x3f6c8f)
+
+/** stacking mode — z-index set but inert. */
+export const DEAD_ZINDEX_COLOR = new Color(0xff5470)
+
 export const REFERENCE_COLOR = new Color(0x3a4a60)
 export const REFERENCE_TEXT = '#8296ad'

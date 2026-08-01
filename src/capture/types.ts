@@ -46,6 +46,23 @@ export type CapturedNode = {
   /** true when rect is inferred rather than measured (pseudo-elements have no rect API) */
   approximate?: boolean
 
+  // --- stacking context tree -------------------------------------------------
+  // A third tree, and the one that is genuinely about depth. An element's place in
+  // it has little to do with its DOM depth: it belongs to the nearest ancestor that
+  // *forms* a stacking context, which may be many DOM levels up or the root itself.
+
+  /** the reason this element forms a stacking context, if it does */
+  stackingReason?: string
+  /** index of the node whose stacking context this node paints inside; -1 for the root */
+  stackingContext: number
+  /** depth in the stacking-context tree, not the DOM tree */
+  stackingDepth: number
+  /**
+   * z-index is set but cannot do anything, because the element is `position: static`
+   * and is not a flex/grid item. This is the most common z-index confusion there is.
+   */
+  zIndexIneffective?: boolean
+
   display?: string
   position?: string
   zIndex?: string
@@ -75,5 +92,10 @@ export type Capture = {
     domOnly: number
     /** in the render tree but never in the DOM */
     renderOnly: number
+    /** elements that form a stacking context */
+    stackingContexts: number
+    maxStackingDepth: number
+    /** elements whose z-index is set but has no effect */
+    deadZIndex: number
   }
 }

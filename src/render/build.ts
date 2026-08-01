@@ -14,7 +14,10 @@ import {
 import type { Capture, CapturedNode } from '../capture/types'
 import {
   BOTH_COLOR,
+  CONTEXT_COLOR,
+  DEAD_ZINDEX_COLOR,
   DOM_ONLY_COLOR,
+  IN_CONTEXT_COLOR,
   RENDER_ONLY_COLOR,
   TEXT_COLOR,
   WHITESPACE_COLOR,
@@ -25,11 +28,12 @@ import { buildReference } from './reference'
 /**
  * Which tree is on screen.
  *
- *   'dom'    the DOM tree — everything the parser produced, boxes or not
- *   'render' the render tree — only nodes that generate boxes, including ::before/::after
- *   'diff'   both at once, coloured by which tree each node belongs to
+ *   'dom'      the DOM tree — everything the parser produced, boxes or not
+ *   'render'   the render tree — only nodes that generate boxes, plus ::before/::after
+ *   'diff'     DOM and render at once, coloured by which tree each node belongs to
+ *   'stacking' the stacking-context tree — z is stacking depth, not DOM depth
  */
-export type TreeMode = 'dom' | 'render' | 'diff'
+export type TreeMode = 'dom' | 'render' | 'diff' | 'stacking'
 
 export type BuildOptions = {
   mode: TreeMode
@@ -61,7 +65,27 @@ export type BuiltScene = {
 /** Nodes with no box get a small marker instead of nothing. */
 const MARKER = 10
 
+/**
+ * The z axis means different things per mode. In stacking mode it is depth in the
+ * stacking-context tree — which has little to do with DOM depth, and is the whole point
+ * of that view.
+ */
+function depthOf(n: CapturedNode, mode: TreeMode): number {
+  return mode === 'stacking' ? n.stackingDepth : n.depth
+}
+
+/** In stacking mode, parent links point at the containing CONTEXT, not the DOM parent. */
+function linkParentOf(n: CapturedNode, mode: TreeMode): number {
+  return mode === 'stacking' ? n.stackingContext : n.parent
+}
+
 function includeNode(n: CapturedNode, opts: BuildOptions): boolean {
+  if (opts.mode === 'stacking') {
+    // Only things that actually paint participate in stacking.
+    if (n.membership === 'dom') return false
+    if (n.kind === 'text') return false
+    return true
+  }
   if (opts.mode === 'dom' && n.membership === 'render') return false
   if (opts.mode === 'render' && n.membership === 'dom') return false
   if (n.kind === 'text') {
@@ -72,6 +96,11 @@ function includeNode(n: CapturedNode, opts: BuildOptions): boolean {
 }
 
 function colorFor(n: CapturedNode, capture: Capture, mode: TreeMode): Color {
+  if (mode === 'stacking') {
+    if (n.zIndexIneffective) return DEAD_ZINDEX_COLOR
+    if (n.stackingReason) return CONTEXT_COLOR
+    return IN_CONTEXT_COLOR
+  }
   if (mode === 'diff') {
     if (n.membership === 'dom') return DOM_ONLY_COLOR
     if (n.membership === 'render') return RENDER_ONLY_COLOR
@@ -80,6 +109,12 @@ function colorFor(n: CapturedNode, capture: Capture, mode: TreeMode): Color {
   if (n.kind === 'pseudo') return RENDER_ONLY_COLOR
   if (n.kind === 'text') return n.whitespaceOnly ? WHITESPACE_COLOR : TEXT_COLOR
   return depthColor(n.depth, capture.stats.maxDepth)
+}
+
+function emphasised(n: CapturedNode, mode: TreeMode): boolean {
+  if (mode === 'diff') return n.membership !== 'both'
+  if (mode === 'stacking') return Boolean(n.stackingReason || n.zIndexIneffective)
+  return false
 }
 
 /**
@@ -122,13 +157,13 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
 
     const x = cx - viewport.w / 2
     const y = -cy + viewport.h / 2
-    const z = node.depth * opts.gap
+    const z = depthOf(node, opts.mode) * opts.gap
 
     const color = colorFor(node, capture, opts.mode)
-    const emphasise = opts.mode === 'diff' && node.membership !== 'both'
+    const emphasise = emphasised(node, opts.mode)
 
-    const baseFill = degenerate ? 0.55 : emphasise ? 0.22 : 0.09
-    const baseEdge = degenerate ? 0.95 : emphasise ? 0.9 : 0.5
+    const baseFill = degenerate ? 0.55 : emphasise ? 0.22 : 0.08
+    const baseEdge = degenerate ? 0.95 : emphasise ? 0.95 : 0.42
 
     const geometry = new PlaneGeometry(Math.max(w, 1), Math.max(h, 1))
 
@@ -162,7 +197,7 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
     const pts: number[] = []
     for (const { node } of built) {
       const a = positions.get(node.index)
-      const b = positions.get(node.parent)
+      const b = positions.get(linkParentOf(node, opts.mode))
       if (!a || !b) continue
       pts.push(b[0], b[1], b[2], a[0], a[1], a[2])
     }
@@ -179,13 +214,14 @@ export function buildScene(capture: Capture, opts: BuildOptions): BuiltScene {
   }
 
   // Depth is only legible against something fixed.
-  const visibleDepth = built.reduce((m, b) => Math.max(m, b.node.depth), 0)
+  const visibleDepth = built.reduce((m, b) => Math.max(m, depthOf(b.node, opts.mode)), 0)
   group.add(
     buildReference(capture, {
       gap: opts.gap,
       maxDepth: visibleDepth,
       showPlanes: opts.showPlanes,
       showRuler: opts.showRuler,
+      label: opts.mode === 'stacking' ? 'stack' : 'depth',
     }),
   )
 

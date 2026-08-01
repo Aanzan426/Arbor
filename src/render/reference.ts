@@ -93,6 +93,8 @@ export type ReferenceOptions = {
   maxDepth: number
   showPlanes: boolean
   showRuler: boolean
+  /** what the axis is measuring in the current mode — 'depth' or 'stack' */
+  label: string
 }
 
 export function buildReference(capture: Capture, opts: ReferenceOptions): Group {
@@ -129,7 +131,7 @@ export function buildReference(capture: Capture, opts: ReferenceOptions): Group 
       group.add(label)
     }
 
-    const title = makeLabel('depth')
+    const title = makeLabel(opts.label)
     title.position.set(x - 70, y - 78, 0)
     group.add(title)
   }

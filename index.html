@@ -13,20 +13,23 @@
           <p class="sub">The tree the browser actually built.</p>
         </header>
 
+        <label class="lbl" for="sample">Sample</label>
+        <select id="sample"></select>
+
         <label class="lbl" for="src">HTML</label>
         <textarea id="src" spellcheck="false"></textarea>
 
         <div class="row">
           <button id="explode" class="primary">Explode</button>
-          <button id="sample">Sample</button>
           <button id="reset">Recentre</button>
         </div>
 
         <label class="lbl">Tree</label>
-        <div class="row seg" id="mode">
+        <div class="seg" id="mode">
           <button data-mode="dom" class="on">DOM</button>
           <button data-mode="render">Render</button>
           <button data-mode="diff">Diff</button>
+          <button data-mode="stacking">Stacking</button>
         </div>
         <p id="mode-note" class="note"></p>
 

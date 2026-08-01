@@ -29,15 +29,20 @@ npm run dev
 
 Paste HTML, hit **Explode**, drag to orbit, scroll to zoom, hover a plane for its details.
 
-## Two trees, and they disagree
+**[`snaps/`](snaps/) is a visual walkthrough** — ten captured screenshots showing what is in
+the source, what actually reaches the screen, and how far apart those are. Start there if you
+want to see what this does before running it.
 
-A browser does not have *a* tree. Arbor shows two of them and the gap between:
+## Three trees, and they disagree
+
+A browser does not have *a* tree. Arbor shows three of them and the gaps between:
 
 | mode | what it shows |
 |---|---|
 | **DOM** | everything the parser produced, boxes or not |
 | **Render** | only nodes that generate a box — including `::before` / `::after` |
 | **Diff** | both at once, coloured by which tree each node belongs to |
+| **Stacking** | the stacking-context tree — z becomes *stacking* depth, not DOM depth |
 
 The interesting part is what falls out of each:
 
@@ -53,10 +58,10 @@ them, query them, or attach a listener to them.
 still occupies space; it merely isn't painted. This is the single most common confusion
 between the two properties, and here it's just visible.
 
-Measured on a small test page with a `<head>`, a `<script>`, a `display:none` subtree, a
-`visibility:hidden` block and two cards each carrying a `::before` and an `::after`:
-**38 nodes total, 34 in the DOM, 18 in the render tree — 20 DOM-only, 4 render-only.**
-Barely half the document survives into the thing you actually see.
+Measured on the built-in **Real structure** sample — a header, nav, a grid of cards, a
+footer, a `<script>`, one `display:none` section and one `visibility:hidden` section:
+**70 nodes total, 66 in the DOM, 46 in the render tree — 24 DOM-only, 4 render-only.**
+A third of the document never reaches the screen. See [`snaps/`](snaps/) 03–05.
 
 ### This is a reconstruction, not the engine's box tree
 
@@ -71,6 +76,40 @@ Two known gaps, stated plainly:
 - **Pseudo-element geometry** is inferred. There is no API that returns a rect for `::before`,
   so its position is derived from the host element's box and flagged *position approximated*
   in the hover readout.
+
+## The stacking-context tree
+
+A third tree, and the only one that is genuinely *about* depth — so it gets the z axis on
+its own terms: **in Stacking mode, z is stacking depth, not DOM depth.** They are not the
+same number, and watching them diverge is the point.
+
+The rule everything follows from:
+
+> **z-index only orders siblings within one stacking context.**
+
+So `z-index: 9999` does nothing if its context is painted below a rival's — no value,
+however large, escapes its own context. This is hard to debug by reading CSS because the
+properties that *create* a context mostly look unrelated to layering:
+
+`position: fixed | sticky` · `opacity < 1` · `transform` · `filter` · `backdrop-filter` ·
+`perspective` · `clip-path` · `mask` · `mix-blend-mode` · `isolation: isolate` ·
+`contain: layout|paint|strict|content` · `content-visibility: auto` · `will-change` on any
+of the above · `position: absolute|relative` with a `z-index` · a flex/grid **item** with a
+`z-index` · `view-transition-name`
+
+Somebody adds a fade animation and a dropdown starts rendering behind the footer.
+
+The **Stacking contexts / the z-index bug** sample reproduces it exactly. A panel carries
+`opacity: .99` — a change nobody can see — which seals everything inside it into a new
+context. The element within has `z-index: 9999` and still paints below a `z-index: 1`
+sibling of the panel. Arbor reports 9 contexts, stacking depth 3, and 1 dead z-index.
+
+It also flags **inert z-index**: set on a `position: static` element that isn't a flex or
+grid item, so the property is silently ignored. A no-op that looks like it should work.
+
+In this mode the parent links point at each node's **containing context**, not its DOM
+parent — so you can see links leap across DOM levels to whichever ancestor actually formed
+a context.
 
 ## Reading depth
 
@@ -135,7 +174,10 @@ so `contentDocument` would be unreadable.
 ```
 src/capture/types.ts     the Capture format — the seam between walking and drawing
 src/capture/walk.ts      walks a live Document, reads geometry, reconstructs the render tree
+src/capture/stacking.ts  stacking-context detection rules
 src/capture/fromHtml.ts  adapter: HTML string -> Capture, via a real iframe
+src/samples.ts           the three built-in documents
+tools/snap.mjs           regenerates snaps/ — `npm run snaps`
 src/render/build.ts      Capture -> three.js geometry, per tree mode
 src/render/reference.ts  page outline, depth planes, numbered z ruler
 src/render/scene.ts      camera fitting, orbit controls, raycast hover
@@ -145,10 +187,12 @@ src/render/palette.ts    colour — depth in DOM/render modes, membership in dif
 ## Not built yet
 
 - Capture adapters beyond paste: bookmarklet, Playwright-for-any-URL, extension
-- **The remaining trees.** DOM and render are in. Still missing: the CSSOM, stacking
-  contexts (a tree formed by `z-index`, `opacity`, `transform` — and the one that's genuinely
-  about depth), compositing layers, and the accessibility tree. Each disagrees with the
+- **The remaining trees.** DOM, render and stacking are in. Still missing: the CSSOM,
+  compositing layers (what gets its own GPU texture — usually far fewer than you'd guess,
+  and the cause of most scroll jank), and the accessibility tree. Each disagrees with the
   others, and the disagreements are the interesting part.
+- **Paint order within a context** — the stacking tree shows membership, not the seven-step
+  paint order inside each context. That ordering is what actually decides who wins.
 - Anonymous boxes — see the reconstruction caveat above.
 - Live mutation view via `MutationObserver` — the DOM is a *live* tree, so watching a subtree
   grow as an app boots is the fourth dimension.

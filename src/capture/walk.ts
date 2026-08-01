@@ -1,8 +1,9 @@
+import { isZIndexDead, stackingReason } from './stacking'
 import type { Capture, CapturedNode, Membership, Rect } from './types'
 
 /**
- * Walks a live Document and records every node with its real geometry, plus whether
- * that node survives into the render tree.
+ * Walks a live Document and records every node with its real geometry, which trees it
+ * belongs to, and where it sits in the stacking-context tree.
  *
  * The geometry is not computed here — the browser already did it during layout.
  * Elements hand it over via getBoundingClientRect(); text nodes need a Range, because
@@ -25,6 +26,11 @@ import type { Capture, CapturedNode, Membership, Rect } from './types'
  *
  * Anonymous boxes (the engine wrapping stray inline content in a block) are genuinely
  * unobservable from JS and are not reconstructed. That gap is real; see the README.
+ *
+ * ON THE STACKING TREE
+ * --------------------
+ * Threaded through the same walk: every node carries the index of the stacking context
+ * it paints inside, and its depth in that tree. See ./stacking.ts for the rules.
  */
 
 const EMPTY: Rect = { x: 0, y: 0, w: 0, h: 0 }
@@ -71,10 +77,12 @@ export function walkDocument(doc: Document, source: string): Capture {
 
   const nodes: CapturedNode[] = []
   let maxDepth = 0
+  let maxStackingDepth = 0
 
   const push = (n: CapturedNode) => {
     nodes.push(n)
     if (n.depth > maxDepth) maxDepth = n.depth
+    if (n.stackingDepth > maxStackingDepth) maxStackingDepth = n.stackingDepth
   }
 
   /** Pseudo-elements have no geometry API. Infer a box just inside the host. */
@@ -91,7 +99,15 @@ export function walkDocument(doc: Document, source: string): Capture {
     }
   }
 
-  const visit = (node: Node, parent: number, depth: number, headAncestor: boolean) => {
+  const visit = (
+    node: Node,
+    parent: number,
+    depth: number,
+    headAncestor: boolean,
+    ctxIndex: number,
+    ctxDepth: number,
+    parentCs: CSSStyleDeclaration | null,
+  ) => {
     const index = nodes.length
 
     if (node.nodeType === Node.ELEMENT_NODE) {
@@ -111,6 +127,12 @@ export function walkDocument(doc: Document, source: string): Capture {
         reason = 'generates no box'
       }
 
+      // An element BELONGS to its parent's stacking context and may CREATE a new one
+      // for its descendants. Both facts are recorded separately.
+      const forms = cs ? stackingReason(cs, el === doc.documentElement, parentCs) : null
+      const childCtxIndex = forms ? index : ctxIndex
+      const childCtxDepth = forms ? ctxDepth + 1 : ctxDepth
+
       push({
         index,
         parent,
@@ -123,13 +145,18 @@ export function walkDocument(doc: Document, source: string): Capture {
         degenerate: rect.w === 0 || rect.h === 0,
         membership,
         reason,
+        stackingReason: forms ?? undefined,
+        stackingContext: ctxIndex,
+        stackingDepth: ctxDepth,
+        zIndexIneffective: cs ? isZIndexDead(cs, parentCs) || undefined : undefined,
         display: cs?.display,
         position: cs?.position,
         zIndex: cs?.zIndex,
         opacity: cs ? Number(cs.opacity) : undefined,
       })
 
-      // ::before — a box the DOM has no node for.
+      // ::before — a box the DOM has no node for. It paints inside whatever context
+      // its host established.
       const before = win ? pseudoBox(win, el, '::before') : null
       if (before) {
         push({
@@ -143,11 +170,15 @@ export function walkDocument(doc: Document, source: string): Capture {
           degenerate: false,
           membership: 'render',
           approximate: true,
+          stackingContext: childCtxIndex,
+          stackingDepth: childCtxDepth,
           display: before.display,
         })
       }
 
-      for (const child of Array.from(el.childNodes)) visit(child, index, depth + 1, inHead)
+      for (const child of Array.from(el.childNodes)) {
+        visit(child, index, depth + 1, inHead, childCtxIndex, childCtxDepth, cs)
+      }
 
       const after = win ? pseudoBox(win, el, '::after') : null
       if (after) {
@@ -162,6 +193,8 @@ export function walkDocument(doc: Document, source: string): Capture {
           degenerate: false,
           membership: 'render',
           approximate: true,
+          stackingContext: childCtxIndex,
+          stackingDepth: childCtxDepth,
           display: after.display,
         })
       }
@@ -198,6 +231,8 @@ export function walkDocument(doc: Document, source: string): Capture {
         degenerate: !hasBox,
         membership,
         reason,
+        stackingContext: ctxIndex,
+        stackingDepth: ctxDepth,
       })
       return
     }
@@ -205,7 +240,7 @@ export function walkDocument(doc: Document, source: string): Capture {
     // comments, doctype, processing instructions: skipped for now
   }
 
-  visit(doc.documentElement, -1, 0, false)
+  visit(doc.documentElement, -1, 0, false, -1, 0, null)
 
   const elements = nodes.filter((n) => n.kind === 'element').length
   const texts = nodes.filter((n) => n.kind === 'text').length
@@ -233,6 +268,9 @@ export function walkDocument(doc: Document, source: string): Capture {
       inRender: both + renderOnly,
       domOnly,
       renderOnly,
+      stackingContexts: nodes.filter((n) => n.stackingReason).length,
+      maxStackingDepth,
+      deadZIndex: nodes.filter((n) => n.zIndexIneffective).length,
     },
   }
 }

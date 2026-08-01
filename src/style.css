@@ -20,6 +20,10 @@ body {
 
 #app { display: grid; grid-template-columns: 340px 1fr; }
 
+/* Panel children must not shrink: this column scrolls, and letting flex compress
+   items makes the textarea collapse and the mode note overlap the next label. */
+#panel > * { flex-shrink: 0; }
+
 #panel {
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -104,6 +108,7 @@ button.primary { background: #10303c; border-color: #1d5c72; }
 }
 .readout.on { opacity: 1; }
 
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .seg button { padding: 6px 4px; }
 .seg button.on { background: #10303c; border-color: #1d5c72; color: #fff; }
 
@@ -111,7 +116,18 @@ button.primary { background: #10303c; border-color: #1d5c72; }
   margin: 0;
   color: var(--dim);
   font-size: 11px;
-  min-height: 30px;
 }
 .note b { color: #9d7bff; font-weight: 600; }
 .note i { color: #ff5470; font-style: normal; font-weight: 600; }
+
+select {
+  width: 100%;
+  background: #05070a;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+select:focus { outline: 1px solid var(--accent); }
